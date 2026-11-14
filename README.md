@@ -70,6 +70,38 @@ packages/
 
 ## 快速开始
 
+### 无 npm 账号?从源码直接用(已验证)
+
+```bash
+git clone https://github.com/yiqiui/memcore && cd memcore
+npm install && npm run build          # ~1 分钟,零原生依赖,无需编译工具
+```
+
+Claude Code / Cursor 的 MCP 配置直接指向本地构建产物:
+
+```json
+{
+  "mcpServers": {
+    "memcore": {
+      "command": "node",
+      "args": ["/absolute/path/to/memcore/packages/mcp/dist/index.js"],
+      "env": { "MEMCORE_BACKEND": "lancedb", "MEMCORE_DB": "/path/to/data" }
+    }
+  }
+}
+```
+
+CLI 同理:`node packages/cli/dist/index.js -b lancedb -d ./data add "..."`。
+发布到 npm 后(见下)可简化为 `npx -y @memcore/mcp`。
+
+### 发布(维护者)
+
+GitHub Actions 已配好两条流水线:
+- **ci.yml**:push/PR 时自动 `npm ci + build + test`,并开启真实嵌入召回测试与 pgvector 容器测试
+- **release.yml**:push tag `v*` 时按依赖顺序发布 6 个 npm 包并生成 GitHub Release。需在仓库 Settings → Secrets 配置 `NPM_TOKEN`(npmjs.com 的自动化 token)
+
+
+
 ### 库
 
 ```ts
@@ -132,7 +164,7 @@ CLI 端到端验收:同一组操作(写入/重复合并/检索/统计)在 sqlite
 
 ## 路线图
 
-- [ ] 发布 npm(@memcore/core / @memcore/mcp 等),验证 npx 分发链路 —— 材料已就绪
+- [ ] 发布 npm —— 全部材料与 release.yml 就绪,配置 NPM_TOKEN 后 push tag 即发
 - [x] Dashboard(React + Vite):记忆浏览/编辑/策略排序/语义检索
 - [x] 语义检索:`VectorSearchable` 接口,LanceDB 原生向量 / pgvector `<=>` / 内存余弦三路打通
 - [x] 冲突消解升级:嵌入相似度判定(`SimilarityConflictResolver` + `TrigramEmbedder`,可换任意嵌入模型)
