@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { filterRecords } from "./store.js";
 import type { MemoryStore } from "./store.js";
 import type { MemoryRecord, MemoryType, SearchQuery } from "./types.js";
-import { MEMORY_TYPES } from "./types.js";
+import { DEFAULT_NAMESPACE, MEMORY_TYPES } from "./types.js";
 
 function rowToRecord(row: Record<string, unknown>): MemoryRecord {
   const t = row.memoryType as string;
@@ -13,6 +13,7 @@ function rowToRecord(row: Record<string, unknown>): MemoryRecord {
     memoryType: (MEMORY_TYPES as readonly string[]).includes(t)
       ? (t as MemoryType)
       : "fact",
+    namespace: (row.namespace as string) ?? DEFAULT_NAMESPACE,
     createdAt: row.createdAt as number,
     lastAccessedAt: row.lastAccessedAt as number,
     accessCount: row.accessCount as number,

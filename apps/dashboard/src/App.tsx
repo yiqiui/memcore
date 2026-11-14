@@ -18,6 +18,7 @@ export default function App() {
   const [newType, setNewType] = useState<string>("fact");
   const [semanticQuery, setSemanticQuery] = useState("");
   const [semanticHits, setSemanticHits] = useState<MemoryRecordDto[] | null>(null);
+  const [namespace, setNamespace] = useState("default");
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
@@ -25,9 +26,9 @@ export default function App() {
       setError("");
       const [c, s, r, t] = await Promise.all([
         api.config(),
-        api.stats(),
-        api.records(q || undefined, typeFilter || undefined),
-        api.top(20),
+        api.stats(namespace),
+        api.records(q || undefined, typeFilter || undefined, namespace),
+        api.top(20, namespace),
       ]);
       setConfig(c);
       setStats(s);
@@ -36,7 +37,7 @@ export default function App() {
     } catch (e) {
       setError(String(e));
     }
-  }, [q, typeFilter]);
+  }, [q, typeFilter, namespace]);
 
   useEffect(() => {
     void refresh();
@@ -44,7 +45,7 @@ export default function App() {
 
   const add = async () => {
     if (!newContent.trim()) return;
-    await api.add(newContent.trim(), newType);
+    await api.add(newContent.trim(), newType, undefined, namespace);
     setNewContent("");
     await refresh();
   };
@@ -80,6 +81,14 @@ export default function App() {
         <span className="subtitle">
           {config ? `backend: ${config.backend} · db: ${config.dbPath}` : "loading…"}
         </span>
+        <div className="add-row" style={{ marginTop: 8 }}>
+          <input
+            placeholder="namespace(user:alice / proj:x …)"
+            value={namespace}
+            onChange={(e) => setNamespace(e.target.value.trim() || "default")}
+            style={{ maxWidth: 280 }}
+          />
+        </div>
         {stats && (
           <div className="stats">
             <span className="stat total">total {stats.total}</span>

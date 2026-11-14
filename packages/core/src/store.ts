@@ -1,5 +1,10 @@
-import type { MemoryRecord, MemoryType, SearchQuery } from "./types.js";
+import { DEFAULT_NAMESPACE, type MemoryRecord, type MemoryType, type SearchQuery } from "./types.js";
 import { cosineTopK, type VectorHit, type VectorQuery } from "./vector.js";
+
+/** 查询分区键:undefined 视为 "default"。 */
+export function ns(query?: { namespace?: string }): string {
+  return query?.namespace ?? DEFAULT_NAMESPACE;
+}
 
 export class StoreError extends Error {}
 
@@ -8,7 +13,10 @@ export function filterRecords(
   records: MemoryRecord[],
   query: SearchQuery,
 ): MemoryRecord[] {
-  let out = records;
+  const namespace = ns(query);
+  let out = records.filter(
+    (r) => (r.namespace ?? DEFAULT_NAMESPACE) === namespace,
+  );
   if (query.memoryType) {
     const t = query.memoryType;
     out = out.filter((r) => r.memoryType === t);

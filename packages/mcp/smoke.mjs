@@ -6,7 +6,7 @@ const serverPath = fileURLToPath(new URL("./dist/index.js", import.meta.url));
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [serverPath],
-  env: { ...process.env, MEMCORE_DB: "D:/tmp/memcore-e2e/mcp-embed.db", MEMCORE_BACKEND: "memory", MEMCORE_EMBED: "local" },
+  env: { ...process.env, MEMCORE_DB: "D:/tmp/memcore-e2e/mcp-embed.db", MEMCORE_BACKEND: "memory", MEMCORE_EMBED: "local", MEMCORE_NAMESPACE: "user:alice" },
 });
 const client = new Client({ name: "smoke", version: "0" });
 await client.connect(transport);
@@ -21,7 +21,7 @@ console.log("第二次写入 merged =", r2.merged);
 const stats = JSON.parse(
   (await client.callTool({ name: "memory_stats", arguments: {} })).content[0].text,
 );
-console.log("语义合并 total =", stats.total, stats.byType);
+console.log("语义合并(namespace=" + stats.namespace + ") total =", stats.total, stats.byType);
 const hits = JSON.parse(
   (await client.callTool({ name: "search_semantic", arguments: { query: "run the tests first", k: 3 } })).content[0].text,
 );

@@ -24,6 +24,10 @@ const PORT = Number(process.env.PORT ?? 8787);
 const home = process.env.HOME ?? process.env.USERPROFILE ?? ".";
 const dbPath = process.env.MEMCORE_DB ?? `${home}/.memcore/mem.db`;
 const backend = process.env.MEMCORE_BACKEND ?? "sqlite";
+const defaultNs = process.env.MEMCORE_NAMESPACE ?? "default";
+function reqNs(url) {
+  return url.searchParams.get("ns") ?? defaultNs;
+}
 
 const store = await openStore(backend, dbPath);
 let embed = new TrigramEmbedder().embed.bind(new TrigramEmbedder());
@@ -61,25 +65,33 @@ const http = createHttp(async (req, res) => {
   const path = url.pathname;
   try {
     if (path === "/api/config") {
-      return json(res, 200, { backend, dbPath, vector: supportsVectorSearch(store) });
+      return json(res, 200, { backend, dbPath, vector: supportsVectorSearch(store), namespace: defaultNs });
     }
     if (path === "/api/stats") {
+      const n = reqNs(url);
       const types = ["episodic", "fact", "semantic", "procedural"];
       const byType = {};
-      for (const t of types) byType[t] = (await store.list({ memoryType: t })).length;
-      return json(res, 200, { total: await store.count(), byType, vector: supportsVectorSearch(store) });
+      let total = 0;
+      for (const t of types) {
+        byType[t] = (await store.list({ memoryType: t, namespace: n })).length;
+        total += byType[t];
+      }
+      return json(res, 200, { total, byType, vector: supportsVectorSearch(store), namespace: n });
     }
     if (path === "/api/records" && req.method === "GET") {
       const records = await store.list({
         text: url.searchParams.get("q") ?? undefined,
         memoryType: url.searchParams.get("type") ?? undefined,
+        namespace: reqNs(url),
       });
       return json(res, 200, records);
     }
     if (path === "/api/records" && req.method === "POST") {
       const body = await readBody(req);
       const now = Math.floor(Date.now() / 1000);
-      const rec = newRecord(String(body.content ?? ""), body.type ?? "fact", now);
+      const rec = newRecord(String(body.content ?? ""), body.type ?? "fact", now, {
+        namespace: body.namespace ?? reqNs(url),
+      });
       if (body.importance !== undefined) rec.importance = Number(body.importance);
       const stored = await resolveAndInsert(store, rec, new LastWriteWins(), now);
       return json(res, 200, stored);
@@ -103,7 +115,11 @@ const http = createHttp(async (req, res) => {
     }
     if (path === "/api/top") {
       const limit = Number(url.searchParams.get("limit") ?? 10);
-      const ranked = rankByStrategy(await store.list({}), strategy, Math.floor(Date.now() / 1000));
+      const ranked = rankByStrategy(
+        await store.list({ namespace: reqNs(url) }),
+        strategy,
+        Math.floor(Date.now() / 1000),
+      );
       return json(res, 200, ranked.slice(0, limit).map(({ record, score }) => ({ ...record, score })));
     }
     if (path === "/api/semantic" && req.method === "POST") {
@@ -114,6 +130,8 @@ const http = createHttp(async (req, res) => {
       const hits = await store.searchSemantic({
         vector: embed(String(body.query ?? "")),
         k: Number(body.k ?? 10),
+        memoryType: body.type,
+        namespace: body.namespace ?? reqNs(url),
       });
       return json(res, 200, hits);
     }

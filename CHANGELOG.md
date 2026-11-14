@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.0] - 2026-11-14
+
+### Added
+
+- **多租户隔离**:`MemoryRecord.namespace` 严格分区(默认 `default`,无继承),四后端下推 + `(namespace, memory_type)` 索引;冲突消解按分区独立;0.1.0 库自动迁移(`PRAGMA user_version` 门控)
+- **BM25 全文检索**:`FullTextSearchable` 能力接口 + SQLite FTS5(trigram 分词,中文可用)实现;File/内存后端纯 TS BM25 回退,分词器可注入;短查询 LIKE 回退;MATCH 构造 = 精确短语 OR 英文多词 AND OR 中文滑动三元组
+- **混合检索**:`searchHybrid` + `FusionStrategy`(默认 RRF k=60,另有 WeightedFusion);语义路优先原生向量、空结果回退按需嵌入(带 LRU 缓存 `memoizeEmbedder`);`HybridHit` 透传双路信号分
+- MCP:全部 tool 加 `namespace` 参数;`search_memory` 加 `mode: keyword|semantic|hybrid`(默认 hybrid);`MEMCORE_NAMESPACE` 环境变量
+- CLI:`-n` 分区选项;`search --mode`;stats 按分区内计数
+- Dashboard:namespace 切换输入框,全部 API 带 `?ns=`
+
+
+
 All notable changes to memcore are documented here. Format follows Keep a Changelog; versioning follows SemVer.
 
 ## [0.1.0] - 2026-11-14

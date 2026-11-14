@@ -18,6 +18,8 @@ type LanceRow = {
   id: string;
   content: string;
   memory_type: string;
+  /** 旧表迁移期可能为 null,读时按 "default" 归一 */
+  namespace?: string | null;
   created_at: number;
   last_accessed_at: number;
   access_count: number;
@@ -31,6 +33,7 @@ function toRow(rec: MemoryRecord): LanceRow {
     id: rec.id,
     content: rec.content,
     memory_type: rec.memoryType,
+    namespace: rec.namespace ?? "default",
     created_at: rec.createdAt,
     last_accessed_at: rec.lastAccessedAt,
     access_count: rec.accessCount,
@@ -54,6 +57,7 @@ function toRecord(row: Record<string, unknown>): MemoryRecord {
     memoryType: (MEMORY_TYPES as readonly string[]).includes(t)
       ? (t as MemoryType)
       : "fact",
+    namespace: (row.namespace as string) ?? "default",
     createdAt: row.created_at as number,
     lastAccessedAt: row.last_accessed_at as number,
     accessCount: row.access_count as number,
@@ -79,7 +83,15 @@ export class LanceDbStore implements MemoryStore {
       await table.delete(`id = '${dummy.id}'`);
       return new LanceDbStore(table);
     }
-    return new LanceDbStore(await db.openTable(tableName));
+    const table = await db.openTable(tableName);
+    // 0.1.0 → 0.2.0 迁移:补 namespace 列(旧行读时归一为 default)
+    const schema = await table.schema();
+    if (!schema.fields.some((f) => f.name === "namespace")) {
+      await table.addColumns([
+        { name: "namespace", valueSql: `'default'` },
+      ]);
+    }
+    return new LanceDbStore(table);
   }
 
   async insert(record: MemoryRecord): Promise<void> {
@@ -109,7 +121,12 @@ export class LanceDbStore implements MemoryStore {
   async list(query: SearchQuery): Promise<MemoryRecord[]> {
     const total = await this.table.countRows();
     if (total === 0) return [];
-    const rows = await this.table.query().limit(total).toArray();
+    const predicate = `namespace IS NULL OR namespace = '${query.namespace ?? "default"}'`;
+    const rows = await this.table
+      .query()
+      .where(predicate)
+      .limit(total)
+      .toArray();
     const records = rows.map((r) =>
       toRecord(r as unknown as Record<string, unknown>),
     );

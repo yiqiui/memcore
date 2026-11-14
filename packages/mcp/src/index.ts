@@ -8,6 +8,7 @@ import {
   AccessFrequencyStrategy,
   CompositeStrategy,
   LastWriteWins,
+  RrfFusion,
   SimilarityConflictResolver,
   TimeDecayStrategy,
   TrigramEmbedder,
@@ -16,12 +17,18 @@ import {
   openStore,
   rankByStrategy,
   resolveAndInsert,
+  searchFullText,
+  searchHybrid,
   supportsVectorSearch,
 } from "@memcore/core";
 import type { MemoryStore } from "@memcore/core";
 import type { EmbeddingFn, MemoryType } from "@memcore/core";
 
 const MEMORY_TYPES = ["episodic", "fact", "semantic", "procedural"] as const;
+
+function nsOf(params: { namespace?: string }, serverDefault?: string): string | undefined {
+  return params.namespace ?? serverDefault;
+}
 
 /** 默认组合策略:时间衰减 + 访问频率。 */
 function defaultStrategy() {
@@ -31,7 +38,11 @@ function defaultStrategy() {
   ]);
 }
 
-export function createServer(store: MemoryStore, embedFn?: EmbeddingFn) {
+export function createServer(
+  store: MemoryStore,
+  embedFn?: EmbeddingFn,
+  opts?: { defaultNamespace?: string },
+) {
   const server = new McpServer({ name: "memcore", version: "0.1.0" });
 
   server.tool(
@@ -41,10 +52,13 @@ export function createServer(store: MemoryStore, embedFn?: EmbeddingFn) {
       content: z.string().describe("记忆内容"),
       type: z.enum(MEMORY_TYPES).describe("记忆类型"),
       importance: z.number().min(0).max(1).optional().describe("重要性 0-1,默认 0.5"),
+      namespace: z.string().optional().describe("租户分区,默认 default / MEMCORE_NAMESPACE"),
     },
-    async ({ content, type, importance }) => {
+    async ({ content, type, importance, namespace }) => {
       const now = Math.floor(Date.now() / 1000);
-      const rec = newRecord(content, type as MemoryType, now);
+      const rec = newRecord(content, type as MemoryType, now, {
+        namespace: nsOf({ namespace }, opts?.defaultNamespace),
+      });
       if (importance !== undefined) rec.importance = importance;
       const stored = await resolveAndInsert(store, rec, resolver, now);
       return {
@@ -65,20 +79,55 @@ export function createServer(store: MemoryStore, embedFn?: EmbeddingFn) {
 
   server.tool(
     "search_memory",
-    "按关键词/类型检索记忆",
+    "检索记忆:keyword(BM25 全文) / semantic(嵌入) / hybrid(双路融合,默认)",
     {
       query: z.string().optional().describe("关键词(可选)"),
       type: z.enum(MEMORY_TYPES).optional().describe("按类型过滤(可选)"),
+      mode: z.enum(["keyword", "semantic", "hybrid"]).optional().describe("检索模式,默认 hybrid"),
       limit: z.number().int().min(1).max(50).optional().describe("返回条数上限,默认 10"),
+      namespace: z.string().optional().describe("租户分区,默认 default / MEMCORE_NAMESPACE"),
     },
-    async ({ query, type, limit }) => {
-      const results = await store.list({
-        text: query,
-        memoryType: type as MemoryType | undefined,
-        limit: limit ?? 10,
-      });
+    async ({ query, type, mode, limit, namespace }) => {
+      const n = nsOf({ namespace }, opts?.defaultNamespace);
+      const scope = { namespace: n, memoryType: type as MemoryType | undefined };
+      let results: unknown[];
+      if (mode === "keyword") {
+        results = query
+          ? await searchFullText(store, { text: query, ...scope, limit: limit ?? 10 })
+          : await store.list({ ...scope, limit: limit ?? 10 });
+      } else if (mode === "semantic") {
+        if (!query) {
+          results = await store.list({ ...scope, limit: limit ?? 10 });
+        } else {
+          const vector = await embed(query);
+          if (supportsVectorSearch(store)) {
+            results = await store.searchSemantic({ vector, ...scope, k: limit ?? 10 });
+          } else {
+            const records = await store.list(scope);
+            const vectors = await Promise.all(records.map((r) => embed(r.content)));
+            results = cosineTopK(
+              records.map((record, i) => ({ record, embedding: vectors[i] })),
+              vector,
+              limit ?? 10,
+            );
+          }
+        }
+      } else {
+        results = query
+          ? await searchHybrid(store, {
+              query,
+              ...scope,
+              limit: limit ?? 10,
+              embedFn: embed,
+            })
+          : await store.list({ ...scope, limit: limit ?? 10 });
+      }
+      // 统一拍平:{record, score, signals} → record + score 字段
+      const flat = (results as { record?: unknown; score?: number }[]).map((h) =>
+        "record" in h ? { ...(h.record as object), score: h.score } : h,
+      );
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(results) }],
+        content: [{ type: "text" as const, text: JSON.stringify(flat) }],
       };
     },
   );
@@ -88,9 +137,10 @@ export function createServer(store: MemoryStore, embedFn?: EmbeddingFn) {
     "按策略(时间衰减+访问频率)对记忆排序,返回最值得注入上下文的 Top-K",
     {
       limit: z.number().int().min(1).max(50).optional().describe("返回条数上限,默认 10"),
+      namespace: z.string().optional().describe("租户分区,默认 default / MEMCORE_NAMESPACE"),
     },
-    async ({ limit }) => {
-      const all = await store.list({});
+    async ({ limit, namespace }) => {
+      const all = await store.list({ namespace: nsOf({ namespace }, opts?.defaultNamespace) });
       const ranked = rankByStrategy(all, defaultStrategy(), Math.floor(Date.now() / 1000));
       const top = ranked.slice(0, limit ?? 10).map((r) => ({
         ...r.record,
@@ -114,13 +164,15 @@ export function createServer(store: MemoryStore, embedFn?: EmbeddingFn) {
       query: z.string().describe("查询文本"),
       k: z.number().int().min(1).max(50).optional().describe("返回条数,默认 10"),
       type: z.enum(MEMORY_TYPES).optional().describe("按类型过滤(可选)"),
+      namespace: z.string().optional().describe("租户分区,默认 default / MEMCORE_NAMESPACE"),
     },
-    async ({ query, k, type }) => {
+    async ({ query, k, type, namespace }) => {
       // 按需嵌入:对(过滤后的)全部记录现场计算向量并余弦排序。
       // 任何后端可用;记录量大或需要 ANN 加速时,改用后端的
       // VectorSearchable( LanceDB 原生 / pgvector <=> ) + setEmbedding 预存向量。
       const records = await store.list({
         memoryType: type as MemoryType | undefined,
+        namespace: nsOf({ namespace }, opts?.defaultNamespace),
       });
       const vectors = await Promise.all(records.map((r) => embed(r.content)));
       const queryVec = await embed(query);
@@ -142,20 +194,26 @@ export function createServer(store: MemoryStore, embedFn?: EmbeddingFn) {
     },
   );
 
-  server.tool("memory_stats", "返回记忆库统计信息", {}, async () => {
-    const byType: Record<string, number> = {};
-    for (const t of MEMORY_TYPES) {
-      byType[t] = (await store.list({ memoryType: t })).length;
-    }
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify({ total: await store.count(), byType }),
-        },
-      ],
-    };
-  });
+  server.tool(
+    "memory_stats",
+    "返回记忆库统计信息",
+    {
+      namespace: z.string().optional().describe("租户分区,默认 default / MEMCORE_NAMESPACE"),
+    },
+    async ({ namespace }) => {
+      const n = nsOf({ namespace }, opts?.defaultNamespace);
+      const byType: Record<string, number> = {};
+      let total = 0;
+      for (const t of MEMORY_TYPES) {
+        const c = (await store.list({ memoryType: t, namespace: n })).length;
+        byType[t] = c;
+        total += c;
+      }
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ namespace: n, total, byType }) }],
+      };
+    },
+  );
 
   return server;
 }
@@ -174,7 +232,9 @@ async function main() {
     embedFn = localEmbed();
   }
 
-  const server = createServer(store, embedFn);
+  const server = createServer(store, embedFn, {
+    defaultNamespace: process.env.MEMCORE_NAMESPACE,
+  });
   await server.connect(new StdioServerTransport());
 }
 

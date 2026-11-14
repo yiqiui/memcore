@@ -27,8 +27,10 @@ export async function resolveAndInsert(
   resolver: ConflictResolver,
   now: number,
 ): Promise<MemoryRecord> {
+  // 冲突消解只在分区内进行:同 namespace 下同类型同内容才判冲突
   const candidates = await store.list({
     memoryType: incoming.memoryType,
+    namespace: incoming.namespace,
   });
   const res = await resolveAgainst(incoming, candidates, resolver, now);
   if (res.kind === "resolved") {
@@ -62,6 +64,18 @@ export {
   supportsVectorSearch,
 } from "./vector.js";
 export type { VectorSearchable, VectorQuery, VectorHit } from "./vector.js";
+export {
+  bm25TopK,
+  defaultTokenizer,
+  searchFullText,
+} from "./fts.js";
+export type { FullTextSearchable, FullTextQuery, FullTextHit, Tokenizer } from "./fts.js";
+export { RrfFusion, WeightedFusion } from "./fusion.js";
+export type { FusionStrategy, HybridHit, RetrievalPath, RetrievalPathKind } from "./fusion.js";
+export { searchHybrid, memoizeEmbedder } from "./retrieval.js";
+export type { HybridSearchOptions } from "./retrieval.js";
+export { DEFAULT_NAMESPACE } from "./types.js";
+export { ns } from "./store.js";
 export type { BackendFactory } from "./registry.js";
 export {
   TimeDecayStrategy,

@@ -2,6 +2,8 @@
 
 存储无关、策略可插拔的 AI Agent 记忆引擎内核(TypeScript monorepo)。
 
+**0.2.0**:多租户隔离(`namespace` 严格分区)+ BM25 混合检索(FTS5 trigram 中文可用 / JS BM25 回退 / RRF 融合可插拔)。设计文档见 `docs/design-0.2.0-namespace-hybrid-retrieval.md`。
+
 ## 定位
 
 不做框架、不做完整记忆产品,只做记忆层里**方法论最未收敛**的两件事:
@@ -134,7 +136,7 @@ rankByStrategy(store.list({}), new CompositeStrategy([
 }
 ```
 
-暴露 5 个 tool:`add_memory`(写入+冲突消解)、`search_memory`(关键词/类型检索)、`search_semantic`(嵌入语义检索)、`rank_memory`(策略排序 Top-K)、`memory_stats`。
+暴露 5 个 tool:`add_memory`(写入+冲突消解)、`search_memory`(keyword/semantic/hybrid 三模式,默认 hybrid)、`search_semantic`(嵌入语义检索)、`rank_memory`(策略排序 Top-K)、`memory_stats`。全部 tool 支持可选 `namespace` 参数(多租户严格分区);`MEMCORE_NAMESPACE` 设默认分区。
 
 后端选择:`MEMCORE_BACKEND=lancedb` / `MEMCORE_DB=./data` 环境变量;未注册的后端名会自动动态加载 `@memcore/<name>` 或按 npm 包名加载(第三方)。
 

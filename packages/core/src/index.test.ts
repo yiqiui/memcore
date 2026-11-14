@@ -10,12 +10,15 @@ import {
   FileStore,
   LastWriteWins,
   MemoryStore,
+  RrfFusion,
   SqliteStore,
   TimeDecayStrategy,
+  bm25TopK,
   newRecord,
   rankByStrategy,
   resolveAgainst,
   resolveAndInsert,
+  searchHybrid,
 } from "./index.js";
 
 let tmpSeq = 0;
@@ -80,6 +83,113 @@ describe("file store 持久化", () => {
     const s2 = new FileStore(file);
     expect(await s2.count()).toBe(1);
     expect((await s2.list({ text: "durable" }))[0].content).toBe("durable memory");
+  });
+});
+
+describe("namespace 严格分区", () => {
+  for (const { path, make } of makeStores()) {
+    it(`[${path}] A 区写入,B 区/default 不可见`, async () => {
+      const store = make();
+      await store.insert({ ...newRecord("shared note", "fact", 1), namespace: "user:alice" });
+      expect((await store.list({ namespace: "user:alice" })).length).toBe(1);
+      expect((await store.list({})).length).toBe(0);
+      expect((await store.list({ namespace: "user:bob" })).length).toBe(0);
+    });
+
+    it(`[${path}] 冲突消解按分区独立`, async () => {
+      const store = make();
+      const r = { namespace: "user:alice" } as const;
+      await resolveAndInsert(
+        store,
+        { ...newRecord("dark mode", "fact", 1), ...r },
+        new LastWriteWins(),
+        5,
+      );
+      const merged = await resolveAndInsert(
+        store,
+        { ...newRecord("dark mode", "fact", 2), ...r },
+        new LastWriteWins(),
+        5,
+      );
+      expect(merged.accessCount).toBe(1);
+      expect((await store.list({ namespace: "user:alice" })).length).toBe(1);
+
+      const bob = await resolveAndInsert(
+        store,
+        { ...newRecord("dark mode", "fact", 3), namespace: "user:bob" },
+        new LastWriteWins(),
+        5,
+      );
+      expect(bob.accessCount).toBe(0);
+      expect((await store.list({ namespace: "user:bob" })).length).toBe(1);
+    });
+  }
+
+  it("SQLite 0.1.0 旧库自动迁移(v1 schema → namespace + FTS)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), `memcore-mig-`));
+    const dbPath = join(dir, "legacy.db");
+    const { DatabaseSync } = await import("node:sqlite");
+    const raw = new DatabaseSync(dbPath);
+    raw.exec(`CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT NOT NULL, memory_type TEXT NOT NULL, created_at INTEGER NOT NULL, last_accessed_at INTEGER NOT NULL, access_count INTEGER NOT NULL, importance REAL NOT NULL, metadata TEXT NOT NULL);`);
+    raw
+      .prepare(`INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run("legacy-id", "legacy content", "fact", 100, 100, 0, 0.5, "{}");
+    raw.close();
+
+    const store = new SqliteStore(dbPath);
+    const all = await store.list({});
+    expect(all.length).toBe(1);
+    expect(all[0].namespace).toBe("default");
+    expect((await store.searchFullText({ text: "legacy content" })).length).toBe(1);
+    expect((await store.searchFullText({ text: "no such thing xyz" })).length).toBe(0);
+  });
+
+  it("FTS5 中文 trigram 与引号转义", async () => {
+    const store = new SqliteStore(":memory:");
+    await store.insert(newRecord("用户偏好深色主题", "fact", 1));
+    await store.insert(newRecord('quote "test" content', "fact", 1));
+    expect((await store.searchFullText({ text: "深色主题" })).length).toBe(1);
+    expect((await store.searchFullText({ text: "无关查询词组" })).length).toBe(0);
+    expect((await store.searchFullText({ text: '"test"' })).length).toBe(1);
+  });
+
+  it("BM25 JS 回退路径(分词 + 排序)", async () => {
+    const store = new InMemoryStore();
+    await store.insert(newRecord("deploy via github actions workflow", "fact", 1));
+    await store.insert(newRecord("dark mode theme preference", "fact", 1));
+    const hits = bm25TopK(await store.list({}), "github actions", 10);
+    expect(hits[0].record.content).toBe("deploy via github actions workflow");
+    const zh = bm25TopK(await store.list({}), "深色", 10);
+    expect(zh.length).toBe(0); // "深色" bigram vs 内容 "dark mode...",无中文命中
+  });
+
+  it("RRF 融合:两路都命中的记录排第一", () => {
+    const a = newRecord("both signals", "fact", 1);
+    const b = newRecord("bm25 only", "fact", 1);
+    const c = newRecord("semantic only", "fact", 1);
+    const fused = new RrfFusion().fuse(
+      [
+        { kind: "bm25", hits: [ { record: a, score: 5 }, { record: b, score: 3 } ] },
+        { kind: "semantic", hits: [ { record: c, score: 4 }, { record: a, score: 2 } ] },
+      ],
+      10,
+    );
+    expect(fused[0].record.content).toBe("both signals");
+    expect(fused[0].signals.bm25).toBe(5);
+    expect(fused[0].signals.semantic).toBe(2);
+  });
+
+  it("searchHybrid 全链路(内存后端 + 假嵌入)", async () => {
+    const store = new InMemoryStore();
+    await store.insert(newRecord("user prefers dark mode", "fact", 1));
+    await store.insert(newRecord("deploy to production", "fact", 1));
+    const hits = await searchHybrid(store, {
+      query: "dark mode",
+      embedFn: (t) => [t.includes("dark") ? 1 : 0, t.includes("deploy") ? 1 : 0],
+    });
+    expect(hits[0].record.content).toBe("user prefers dark mode");
+    expect(hits[0].signals.bm25).toBeDefined();
+    expect(hits[0].signals.semantic).toBeDefined();
   });
 });
 
