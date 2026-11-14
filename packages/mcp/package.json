@@ -1,0 +1,48 @@
+{
+  "name": "@memcore/mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing memcore memory tools to AI coding agents",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "memcore-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm test --if-present"
+  },
+  "dependencies": {
+    "@memcore/core": "*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOURNAME/memcore.git"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "memory",
+    "mcp",
+    "embeddings",
+    "sqlite",
+    "lancedb",
+    "pgvector",
+    "local-first"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": [
+    "./dist/index.js"
+  ],
+  "author": "memcore contributors"
+}

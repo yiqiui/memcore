@@ -1,0 +1,55 @@
+{
+  "name": "@memcore/pg",
+  "version": "0.1.0",
+  "description": "PostgreSQL (pgvector-ready) backend for memcore",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm test --if-present"
+  },
+  "dependencies": {
+    "@memcore/core": "*",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOURNAME/memcore.git"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "memory",
+    "mcp",
+    "embeddings",
+    "sqlite",
+    "lancedb",
+    "pgvector",
+    "local-first"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": [
+    "./dist/index.js"
+  ],
+  "author": "memcore contributors"
+}

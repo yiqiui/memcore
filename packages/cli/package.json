@@ -1,0 +1,46 @@
+{
+  "name": "@memcore/cli",
+  "version": "0.1.0",
+  "description": "CLI for memcore: mem add / search / stats",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "mem": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build && npm test --if-present"
+  },
+  "dependencies": {
+    "@memcore/core": "*",
+    "commander": "^12.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOURNAME/memcore.git"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "memory",
+    "mcp",
+    "embeddings",
+    "sqlite",
+    "lancedb",
+    "pgvector",
+    "local-first"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": [
+    "./dist/index.js"
+  ],
+  "author": "memcore contributors"
+}

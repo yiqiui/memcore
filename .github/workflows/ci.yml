@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      # 嵌入召回测试需要下载模型;CI 上开启以持续验证真实语义行为
+      - run: npm test -w @memcore/core
+        env:
+          MEMCORE_TEST_EMBED: "1"
+      # pg 后端测试(需要服务端):起一个 pgvector 容器做真实验证
+      - name: pgvector 后端测试
+        run: |
+          sudo apt-get -y install postgresql-client
+          docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=memcore_test -p 5432:5432 pgvector/pgvector:pg16
+          sleep 5
+          MEMCORE_TEST_PG=postgres://postgres:postgres@localhost:5432/memcore_test npm test -w @memcore/pg
