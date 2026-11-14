@@ -19,6 +19,7 @@ import {
   resolveAgainst,
   resolveAndInsert,
   searchHybrid,
+  SqliteStore as _SqliteStore,
 } from "./index.js";
 
 let tmpSeq = 0;
@@ -190,6 +191,85 @@ describe("namespace 严格分区", () => {
     expect(hits[0].record.content).toBe("user prefers dark mode");
     expect(hits[0].signals.bm25).toBeDefined();
     expect(hits[0].signals.semantic).toBeDefined();
+  });
+});
+
+describe("TTL 过期与 history 审计", () => {
+  it("过期记录默认排除,includeExpired 可见(三后端一致)", async () => {
+    for (const { make } of makeStores()) {
+      const store = make();
+      const now = Math.floor(Date.now() / 1000);
+      const alive = newRecord("still alive", "fact", 1);
+      const expired = { ...newRecord("already expired", "fact", 1), expirationAt: now - 10 };
+      await store.insert(alive);
+      await store.insert(expired);
+      expect((await store.list({})).some((r) => r.content === "already expired")).toBe(false);
+      expect((await store.list({})).some((r) => r.content === "still alive")).toBe(true);
+      expect((await store.list({ includeExpired: true })).length).toBe(2);
+    }
+  });
+
+  it("searchFullText / searchHybrid 排除过期记录", async () => {
+    const store = new SqliteStore(":memory:");
+    const now = Math.floor(Date.now() / 1000);
+    await store.insert({ ...newRecord("expired dark mode note", "fact", 1), expirationAt: now - 5 });
+    await store.insert(newRecord("alive dark mode note", "fact", 1));
+    expect((await store.searchFullText({ text: "dark mode" })).map((h) => h.record.content)).toEqual([
+      "alive dark mode note",
+    ]);
+    const hybrid = await searchHybrid(store, {
+      query: "dark mode",
+      embedFn: (t) => [t.includes("dark") ? 1 : 0],
+    });
+    expect(hybrid.every((h) => h.record.content !== "expired dark mode note")).toBe(true);
+  });
+
+  it("merge 时旧记录进 history(SQLite),并保留 oldRecord 快照", async () => {
+    const store = new SqliteStore(":memory:");
+    await store.insert(newRecord("tests must run first v1", "procedural", 100));
+    await resolveAndInsert(
+      store,
+      newRecord("tests must run first v1", "procedural", 200),
+      new LastWriteWins(),
+      300,
+    );
+    const history = await store.listHistory({ limit: 10 });
+    expect(history.length).toBe(1);
+    expect(history[0].reason).toBe("merged");
+    expect(history[0].oldRecord.content).toBe("tests must run first v1");
+    expect(history[0].oldRecord.accessCount).toBe(0);
+  });
+
+  it("直接 delete 也捕获历史", async () => {
+    const store = new SqliteStore(":memory:");
+    const rec = newRecord("to be deleted", "fact", 100);
+    await store.insert(rec);
+    if (!("appendHistory" in store)) throw new Error("no history");
+    await (
+      store as { appendHistory(e: object): Promise<void> }
+    ).appendHistory({
+      namespace: rec.namespace,
+      recordId: rec.id,
+      reason: "deleted",
+      oldRecord: rec,
+      at: 500,
+    });
+    const history = await store.listHistory({});
+    expect(history.length).toBe(1);
+    expect(history[0].reason).toBe("deleted");
+    expect(history[0].recordId).toBe(rec.id);
+  });
+
+  it("InMemoryStore 无 history 能力时 resolveAndInsert 不报错", async () => {
+    const store = new InMemoryStore();
+    await store.insert(newRecord("dup", "fact", 100));
+    const merged = await resolveAndInsert(
+      store,
+      newRecord("dup", "fact", 200),
+      new LastWriteWins(),
+      300,
+    );
+    expect(merged.accessCount).toBe(1);
   });
 });
 

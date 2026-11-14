@@ -1,6 +1,6 @@
 {
   "name": "@memcore/embed-local",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local ONNX embeddings for memcore via transformers.js (no API, runs on device)",
   "license": "MIT",
   "type": "module",

@@ -1,6 +1,6 @@
 {
   "name": "@memcore/pg",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "PostgreSQL (pgvector-ready) backend for memcore",
   "license": "MIT",
   "type": "module",

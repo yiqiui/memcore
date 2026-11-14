@@ -83,6 +83,7 @@ const http = createHttp(async (req, res) => {
         text: url.searchParams.get("q") ?? undefined,
         memoryType: url.searchParams.get("type") ?? undefined,
         namespace: reqNs(url),
+        includeExpired: true, // 管理面板要看全量,前端标记过期
       });
       return json(res, 200, records);
     }

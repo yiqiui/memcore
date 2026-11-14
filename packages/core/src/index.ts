@@ -2,7 +2,7 @@ import type { ConflictResolver, Resolution } from "./conflict.js";
 import { resolveAgainst } from "./conflict.js";
 import type { MemoryRecord, MemoryType, SearchQuery } from "./types.js";
 import { newRecord } from "./types.js";
-import type { MemoryStore } from "./store.js";
+import type { HistoryEntry, MemoryStore } from "./store.js";
 import { InMemoryStore } from "./store.js";
 import { SqliteStore } from "./sqlite-store.js";
 import { FileStore } from "./file-store.js";
@@ -36,6 +36,18 @@ export async function resolveAndInsert(
   if (res.kind === "resolved") {
     await store.delete(res.oldId);
     await store.insert(res.merged);
+    // history/审计:被替换的旧记录进历史表(后端支持时)
+    if ("appendHistory" in store) {
+      await (
+        store as { appendHistory(e: HistoryEntry): Promise<void> }
+      ).appendHistory({
+        namespace: res.merged.namespace,
+        recordId: res.oldId,
+        reason: "merged",
+        oldRecord: res.oldRecord,
+        at: now,
+      });
+    }
     return res.merged;
   }
   await store.insert(res.record);
@@ -50,8 +62,8 @@ export {
   cosineSimilarity,
 } from "./similarity.js";
 export type { EmbeddingFn } from "./similarity.js";
-export { InMemoryStore, filterRecords } from "./store.js";
-export type { MemoryStore, StoreError } from "./store.js";
+export { InMemoryStore, filterRecords, isExpired } from "./store.js";
+export type { MemoryStore, StoreError, HistoryEntry, HistoryAware } from "./store.js";
 export { SqliteStore } from "./sqlite-store.js";
 export { FileStore } from "./file-store.js";
 export {

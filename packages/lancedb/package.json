@@ -1,6 +1,6 @@
 {
   "name": "@memcore/lancedb",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "LanceDB backend for memcore (vector-ready columnar store)",
   "license": "MIT",
   "type": "module",

@@ -52,14 +52,16 @@ export function createServer(
       content: z.string().describe("记忆内容"),
       type: z.enum(MEMORY_TYPES).describe("记忆类型"),
       importance: z.number().min(0).max(1).optional().describe("重要性 0-1,默认 0.5"),
+      ttl_seconds: z.number().int().min(1).optional().describe("过期秒数(可选);过期后所有查询默认排除"),
       namespace: z.string().optional().describe("租户分区,默认 default / MEMCORE_NAMESPACE"),
     },
-    async ({ content, type, importance, namespace }) => {
+    async ({ content, type, importance, ttl_seconds: ttlSeconds, namespace }) => {
       const now = Math.floor(Date.now() / 1000);
       const rec = newRecord(content, type as MemoryType, now, {
         namespace: nsOf({ namespace }, opts?.defaultNamespace),
       });
       if (importance !== undefined) rec.importance = importance;
+      if (ttlSeconds !== undefined) rec.expirationAt = now + ttlSeconds;
       const stored = await resolveAndInsert(store, rec, resolver, now);
       return {
         content: [
@@ -190,6 +192,30 @@ export function createServer(
             ),
           },
         ],
+      };
+    },
+  );
+
+  server.tool(
+    "memory_history",
+    "查询记忆变更历史(合并替换/删除时的旧记录快照;仅 SQLite 后端支持)",
+    {
+      limit: z.number().int().min(1).max(200).optional().describe("返回条数,默认 50"),
+      namespace: z.string().optional().describe("租户分区,默认 default / MEMCORE_NAMESPACE"),
+    },
+    async ({ limit, namespace }) => {
+      if (!("listHistory" in store)) {
+        return {
+          content: [
+            { type: "text" as const, text: JSON.stringify({ error: "current backend has no history support (use sqlite)" }) },
+          ],
+        };
+      }
+      const entries = await (
+        store as { listHistory(q?: object): Promise<unknown[]> }
+      ).listHistory({ namespace: nsOf({ namespace }, opts?.defaultNamespace), limit: limit ?? 50 });
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(entries) }],
       };
     },
   );

@@ -7,6 +7,7 @@ export interface MemoryRecordDto {
   accessCount: number;
   importance: number;
   metadata: Record<string, unknown>;
+  expirationAt?: number;
   score?: number;
 }
 

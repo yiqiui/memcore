@@ -6,6 +6,25 @@ export function ns(query?: { namespace?: string }): string {
   return query?.namespace ?? DEFAULT_NAMESPACE;
 }
 
+export function isExpired(record: MemoryRecord, nowSec: number): boolean {
+  return record.expirationAt !== undefined && record.expirationAt <= nowSec;
+}
+
+/** 历史条目:记录被合并替换/显式删除时的旧记录快照。 */
+export interface HistoryEntry {
+  namespace: string;
+  recordId: string;
+  reason: "merged" | "deleted";
+  oldRecord: MemoryRecord;
+  at: number;
+}
+
+/** 支持 history/审计的后端(SQLite)实现此能力接口;其余后端历史能力降级为无。 */
+export interface HistoryAware {
+  appendHistory(entry: HistoryEntry): Promise<void>;
+  listHistory(query?: { namespace?: string; limit?: number }): Promise<HistoryEntry[]>;
+}
+
 export class StoreError extends Error {}
 
 /** 统一的 list 过滤实现;各后端可下推到 SQL/谓词,但行为必须与这里一致。 */
@@ -17,6 +36,10 @@ export function filterRecords(
   let out = records.filter(
     (r) => (r.namespace ?? DEFAULT_NAMESPACE) === namespace,
   );
+  if (!query.includeExpired) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    out = out.filter((r) => !isExpired(r, nowSec));
+  }
   if (query.memoryType) {
     const t = query.memoryType;
     out = out.filter((r) => r.memoryType === t);

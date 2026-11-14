@@ -6,8 +6,9 @@ import { filterRecords, ns } from "./store.js";
 import type { MemoryRecord, MemoryType, SearchQuery } from "./types.js";
 import { MEMORY_TYPES } from "./types.js";
 import type { FullTextHit, FullTextQuery, FullTextSearchable } from "./fts.js";
+import type { HistoryAware, HistoryEntry } from "./store.js";
 
-const COLUMNS = `id, content, memory_type, namespace, created_at, last_accessed_at, access_count, importance, metadata`;
+const COLUMNS = `id, content, memory_type, namespace, created_at, last_accessed_at, access_count, importance, metadata, expiration_at`;
 
 /** FTS5 短查询回退阈值:trigram 分词器最少需要 3 个字符。 */
 const FTS_MIN_CHARS = 3;
@@ -21,6 +22,7 @@ function rowToRecord(row: Record<string, unknown>): MemoryRecord {
       ? (t as MemoryType)
       : "fact",
     namespace: (row.namespace as string) ?? DEFAULT_NAMESPACE,
+    expirationAt: (row.expiration_at as number | null) ?? undefined,
     createdAt: row.created_at as number,
     lastAccessedAt: row.last_accessed_at as number,
     accessCount: row.access_count as number,
@@ -61,7 +63,7 @@ function buildFtsQuery(text: string): string {
  * SQLite 后端(零原生依赖,Node 内置 node:sqlite)。
  * schema v2:namespace 分区列 + FTS5(trigram)全文索引;打开旧库自动迁移。
  */
-export class SqliteStore implements FullTextSearchable {
+export class SqliteStore implements FullTextSearchable, HistoryAware {
   private db: DatabaseSync;
 
   constructor(path: string) {
@@ -99,11 +101,25 @@ export class SqliteStore implements FullTextSearchable {
         `ALTER TABLE memories ADD COLUMN namespace TEXT NOT NULL DEFAULT '${DEFAULT_NAMESPACE}'`,
       );
     }
+    if (!cols.some((c) => c.name === "expiration_at")) {
+      // 0.2.0 → 0.3.0 迁移:TTL 列(nullable)
+      this.db.exec(`ALTER TABLE memories ADD COLUMN expiration_at INTEGER`);
+    }
     this.db.exec(
       `CREATE INDEX IF NOT EXISTS idx_memories_ns_type ON memories(namespace, memory_type);`,
     );
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS memories_history (
+          seq INTEGER PRIMARY KEY AUTOINCREMENT,
+          namespace TEXT NOT NULL,
+          record_id TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          old_record TEXT NOT NULL,
+          at INTEGER NOT NULL
+       );`,
+    );
     this.ensureFts(needsRebuild);
-    this.db.exec(`PRAGMA user_version = 2`);
+    this.db.exec(`PRAGMA user_version = 3`);
   }
 
   private ensureFts(rebuild: boolean): void {
@@ -138,8 +154,8 @@ export class SqliteStore implements FullTextSearchable {
     this.db
       .prepare(
         `INSERT OR REPLACE INTO memories
-         (id, content, memory_type, namespace, created_at, last_accessed_at, access_count, importance, metadata)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, content, memory_type, namespace, created_at, last_accessed_at, access_count, importance, metadata, expiration_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -151,6 +167,7 @@ export class SqliteStore implements FullTextSearchable {
         record.accessCount,
         record.importance,
         JSON.stringify(record.metadata),
+        record.expirationAt ?? null,
       );
   }
 
@@ -189,10 +206,48 @@ export class SqliteStore implements FullTextSearchable {
     return row.n;
   }
 
-  /** BM25 全文检索(trigram);短查询回退 LIKE 子串。 */
+  // ---- history/审计(HistoryAware)----
+
+  async appendHistory(entry: HistoryEntry): Promise<void> {
+    this.db
+      .prepare(
+        `INSERT INTO memories_history (namespace, record_id, reason, old_record, at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        entry.namespace,
+        entry.recordId,
+        entry.reason,
+        JSON.stringify(entry.oldRecord),
+        entry.at,
+      );
+  }
+
+  async listHistory(query?: { namespace?: string; limit?: number }): Promise<HistoryEntry[]> {
+    const namespace = query?.namespace ?? DEFAULT_NAMESPACE;
+    const limit = query?.limit ?? 100;
+    const rows = this.db
+      .prepare(
+        `SELECT namespace, record_id, reason, old_record, at
+         FROM memories_history WHERE namespace = ? ORDER BY seq DESC LIMIT ${limit}`,
+      )
+      .all(namespace) as Record<string, unknown>[];
+    return rows.map((row) => ({
+      namespace: row.namespace as string,
+      recordId: row.record_id as string,
+      reason: row.reason as HistoryEntry["reason"],
+      oldRecord: JSON.parse(row.old_record as string),
+      at: row.at as number,
+    }));
+  }
+
+  /** BM25 全文检索(trigram);短查询回退 LIKE 子串;默认排除过期记录。 */
   searchFullText(query: FullTextQuery): FullTextHit[] {
     const limit = query.limit ?? 10;
     const typeCond = query.memoryType ? ` AND m.memory_type = '${query.memoryType}'` : "";
+    const ttlCond = query.includeExpired
+      ? ""
+      : ` AND (m.expiration_at IS NULL OR m.expiration_at > ${Math.floor(Date.now() / 1000)})`;
     if (query.text.length >= FTS_MIN_CHARS) {
       const qualified = COLUMNS.split(", ")
         .map((c) => `m.${c}`)
@@ -201,7 +256,7 @@ export class SqliteStore implements FullTextSearchable {
         .prepare(
           `SELECT ${qualified}, bm25(memories_fts) AS score
            FROM memories_fts f JOIN memories m ON m.rowid = f.rowid
-           WHERE memories_fts MATCH ?2 AND m.namespace = ?1${typeCond}
+           WHERE memories_fts MATCH ?2 AND m.namespace = ?1${typeCond}${ttlCond}
            ORDER BY score LIMIT ${limit}`,
         )
         .all(query.namespace ?? DEFAULT_NAMESPACE, buildFtsQuery(query.text)) as Record<string, unknown>[];
@@ -212,7 +267,7 @@ export class SqliteStore implements FullTextSearchable {
     const rows = this.db
       .prepare(
         `SELECT ${COLUMNS} FROM memories m
-         WHERE m.namespace = ? AND content LIKE '%' || ? || '%'${typeCond}
+         WHERE m.namespace = ? AND content LIKE '%' || ? || '%'${typeCond}${ttlCond}
          LIMIT ${limit}`,
       )
       .all(query.namespace ?? DEFAULT_NAMESPACE, query.text) as Record<string, unknown>[];

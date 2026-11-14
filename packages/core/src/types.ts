@@ -15,6 +15,8 @@ export interface MemoryRecord {
   memoryType: MemoryType;
   /** 租户分区键,严格分区无继承;默认 "default"。约定命名:"user:alice"、"proj:x/user:alice"。 */
   namespace: string;
+  /** 过期时间(unix 秒)。undefined = 永不过期;过期记录默认从所有查询中排除。 */
+  expirationAt?: number;
   createdAt: number;
   lastAccessedAt: number;
   accessCount: number;
@@ -48,5 +50,7 @@ export interface SearchQuery {
   memoryType?: MemoryType;
   /** 分区;undefined 视为 "default",不跨区查询。 */
   namespace?: string;
+  /** true 时包含已过期记录(默认排除)。 */
+  includeExpired?: boolean;
   limit?: number;
 }

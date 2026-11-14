@@ -39,7 +39,7 @@ export class ImportanceMerge implements ConflictResolver {
 }
 
 export type Resolution =
-  | { kind: "resolved"; merged: MemoryRecord; oldId: string }
+  | { kind: "resolved"; merged: MemoryRecord; oldId: string; oldRecord: MemoryRecord }
   | { kind: "no-conflict"; record: MemoryRecord };
 
 export async function resolveAgainst(
@@ -51,7 +51,7 @@ export async function resolveAgainst(
   for (const old of existing) {
     if (old.memoryType !== incoming.memoryType) continue;
     const merged = await resolver.resolve(incoming, old, now);
-    if (merged) return { kind: "resolved", merged, oldId: old.id };
+    if (merged) return { kind: "resolved", merged, oldId: old.id, oldRecord: old };
   }
   return { kind: "no-conflict", record: incoming };
 }

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0] - 2026-11-14
+
+### Added
+
+- **TTL**:`MemoryRecord.expirationAt`(unix 秒);过期记录默认从 list/searchFullText/searchHybrid/rank 全部排除,`includeExpired: true` 可见;MCP `add_memory` 加 `ttl_seconds`,CLI `add --ttl`;Dashboard 列表显示过期记录并标记
+- **history/审计**(SQLite 后端):`memories_history` 表 + `HistoryAware` 能力接口;冲突合并时自动快照被替换的旧记录;MCP 新增 `memory_history` tool,CLI 新增 `mem history`
+- 0.2.0 库自动迁移(expiration_at 列 + history 表,`PRAGMA user_version = 3`)
+
+### Fixed
+
+- LanceDB 全 null 批次无法推断 Arrow 列类型:种子行锚定 expiration_at 类型 + 迁移列显式 CAST(NULL AS DOUBLE)
+
+
+
 ## [0.2.0] - 2026-11-14
 
 ### Added

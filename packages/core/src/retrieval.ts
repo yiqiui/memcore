@@ -31,6 +31,8 @@ export interface HybridSearchOptions {
   query: string;
   namespace?: string;
   memoryType?: MemoryType;
+  /** true 时包含已过期记录(默认排除)。 */
+  includeExpired?: boolean;
   limit?: number;
   /** 提供 → 语义路径按需嵌入(任意后端可用,带 LRU 缓存) */
   embedFn?: EmbeddingFn;
@@ -57,7 +59,13 @@ export async function searchHybrid(
     kind: "bm25",
     hits: await searchFullText(
       store,
-      { text: opts.query, namespace: opts.namespace, memoryType: opts.memoryType, limit: Math.max(limit, 10) },
+      {
+        text: opts.query,
+        namespace: opts.namespace,
+        memoryType: opts.memoryType,
+        includeExpired: opts.includeExpired,
+        limit: Math.max(limit, 10),
+      },
       opts.tokenizer,
     ),
   });

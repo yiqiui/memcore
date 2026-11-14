@@ -12,6 +12,8 @@ export interface FullTextQuery {
   namespace?: string;
   memoryType?: MemoryType;
   limit?: number;
+  /** true 时包含已过期记录(默认排除)。 */
+  includeExpired?: boolean;
 }
 
 /** 支持 BM25 全文检索的后端(SQLite FTS5)实现此能力接口。 */

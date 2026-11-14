@@ -150,8 +150,15 @@ export default function App() {
             </thead>
             <tbody>
               {records.map((r) => (
-                <tr key={r.id}>
-                  <td className="content">{r.content}</td>
+                <tr key={r.id} style={r.expirationAt && r.expirationAt * 1000 < Date.now() ? { opacity: 0.45 } : undefined}>
+                  <td className="content">
+                    {r.content}
+                    {r.expirationAt && r.expirationAt * 1000 < Date.now() && (
+                      <span className="tag" style={{ marginLeft: 6, color: "var(--danger)" }}>
+                        expired
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <span className={`tag ${r.memoryType}`}>{r.memoryType}</span>
                   </td>

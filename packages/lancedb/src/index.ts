@@ -20,6 +20,7 @@ type LanceRow = {
   memory_type: string;
   /** 旧表迁移期可能为 null,读时按 "default" 归一 */
   namespace?: string | null;
+  expiration_at?: number | null;
   created_at: number;
   last_accessed_at: number;
   access_count: number;
@@ -34,6 +35,7 @@ function toRow(rec: MemoryRecord): LanceRow {
     content: rec.content,
     memory_type: rec.memoryType,
     namespace: rec.namespace ?? "default",
+    expiration_at: rec.expirationAt ?? null,
     created_at: rec.createdAt,
     last_accessed_at: rec.lastAccessedAt,
     access_count: rec.accessCount,
@@ -58,6 +60,7 @@ function toRecord(row: Record<string, unknown>): MemoryRecord {
       ? (t as MemoryType)
       : "fact",
     namespace: (row.namespace as string) ?? "default",
+    expirationAt: (row.expiration_at as number | null) ?? undefined,
     createdAt: row.created_at as number,
     lastAccessedAt: row.last_accessed_at as number,
     accessCount: row.access_count as number,
@@ -78,7 +81,8 @@ export class LanceDbStore implements MemoryStore {
     const db = await lancedb.connect(dir);
     const names = await db.tableNames();
     if (!names.includes(tableName)) {
-      const dummy = toRow(newRecord("__schema_seed__", "fact", 0));
+      // 种子行给 expiration_at 一个 double 锚定,避免全 null 批次无法推断 Arrow 类型
+      const dummy = { ...toRow(newRecord("__schema_seed__", "fact", 0)), expiration_at: 0 };
       const table = await db.createTable(tableName, [dummy]);
       await table.delete(`id = '${dummy.id}'`);
       return new LanceDbStore(table);
@@ -90,6 +94,9 @@ export class LanceDbStore implements MemoryStore {
       await table.addColumns([
         { name: "namespace", valueSql: `'default'` },
       ]);
+    }
+    if (!schema.fields.some((f) => f.name === "expiration_at")) {
+      await table.addColumns([{ name: "expiration_at", valueSql: "CAST(NULL AS DOUBLE)" }]);
     }
     return new LanceDbStore(table);
   }

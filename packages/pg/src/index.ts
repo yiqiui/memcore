@@ -12,7 +12,7 @@ import {
   type VectorQuery,
 } from "@memcore/core";
 
-const COLUMNS = `id, content, memory_type, namespace, created_at, last_accessed_at, access_count, importance, metadata`;
+const COLUMNS = `id, content, memory_type, namespace, created_at, last_accessed_at, access_count, importance, metadata, expiration_at`;
 
 function rowToRecord(row: Record<string, unknown>): MemoryRecord {
   const t = row.memory_type as string;
@@ -27,6 +27,7 @@ function rowToRecord(row: Record<string, unknown>): MemoryRecord {
     accessCount: Number(row.access_count),
     importance: Number(row.importance),
     namespace: (row.namespace as string) ?? "default",
+    expirationAt: (row.expiration_at as number | null) ?? undefined,
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
   };
 }
@@ -50,6 +51,7 @@ export class PgStore implements MemoryStore {
           content TEXT NOT NULL,
           memory_type TEXT NOT NULL,
           namespace TEXT NOT NULL DEFAULT 'default',
+          expiration_at BIGINT,
           created_at BIGINT NOT NULL,
           last_accessed_at BIGINT NOT NULL,
           access_count INTEGER NOT NULL,
@@ -59,6 +61,9 @@ export class PgStore implements MemoryStore {
     );
     await pool.query(
       `ALTER TABLE memories ADD COLUMN IF NOT EXISTS namespace TEXT NOT NULL DEFAULT 'default'`,
+    );
+    await pool.query(
+      `ALTER TABLE memories ADD COLUMN IF NOT EXISTS expiration_at BIGINT`,
     );
     await pool.query(
       `CREATE INDEX IF NOT EXISTS idx_memories_ns_type ON memories(namespace, memory_type)`,
@@ -91,10 +96,11 @@ export class PgStore implements MemoryStore {
   async insert(record: MemoryRecord): Promise<void> {
     await this.pool.query(
       `INSERT INTO memories
-       (id, content, memory_type, namespace, created_at, last_accessed_at, access_count, importance, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       (id, content, memory_type, namespace, created_at, last_accessed_at, access_count, importance, metadata, expiration_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (id) DO UPDATE SET
          content = EXCLUDED.content, memory_type = EXCLUDED.memory_type, namespace = EXCLUDED.namespace,
+         expiration_at = EXCLUDED.expiration_at,
          created_at = EXCLUDED.created_at, last_accessed_at = EXCLUDED.last_accessed_at,
          access_count = EXCLUDED.access_count, importance = EXCLUDED.importance,
          metadata = EXCLUDED.metadata`,
@@ -103,6 +109,7 @@ export class PgStore implements MemoryStore {
         record.content,
         record.memoryType,
         record.namespace ?? "default",
+        record.expirationAt ?? null,
         record.createdAt,
         record.lastAccessedAt,
         record.accessCount,

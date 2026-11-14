@@ -2,7 +2,7 @@
 
 存储无关、策略可插拔的 AI Agent 记忆引擎内核(TypeScript monorepo)。
 
-**0.2.0**:多租户隔离(`namespace` 严格分区)+ BM25 混合检索(FTS5 trigram 中文可用 / JS BM25 回退 / RRF 融合可插拔)。设计文档见 `docs/design-0.2.0-namespace-hybrid-retrieval.md`。
+**0.3.0**:多租户隔离、BM25 混合检索(FTS5 trigram 中文可用 / JS BM25 回退 / RRF 融合可插拔)、**TTL 过期**(`add_memory` 的 `ttl_seconds`,过期自动从所有查询排除)、**history/审计**(合并/删除的旧记录快照,`memory_history` tool / `mem history`)。设计文档见 `docs/design-0.2.0-namespace-hybrid-retrieval.md`。
 
 ## 定位
 
@@ -171,5 +171,6 @@ CLI 端到端验收:同一组操作(写入/重复合并/检索/统计)在 sqlite
 - [x] 语义检索:`VectorSearchable` 接口,LanceDB 原生向量 / pgvector `<=>` / 内存余弦三路打通
 - [x] 冲突消解升级:嵌入相似度判定(`SimilarityConflictResolver` + `TrigramEmbedder`,可换任意嵌入模型)
 - [x] 20 场景召回质量测试集
+- [x] TTL 过期 + history/审计(0.3.0)
 - [ ] 更多策略:基于访问频率的自动晋升/淘汰、来源可信度加权
 - [x] 真实嵌入模型接入:`@memcore/embed-local`(transformers.js ONNX,本地离线)+ 4 场景嵌入召回测试

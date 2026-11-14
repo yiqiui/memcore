@@ -1,6 +1,6 @@
 {
   "name": "@memcore/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Storage-agnostic, strategy-pluggable memory engine core for AI agents",
   "license": "MIT",
   "type": "module",

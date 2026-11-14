@@ -51,10 +51,12 @@ program
   .argument("<content>", "记忆内容")
   .option("-t, --type <type>", "episodic|fact|semantic|procedural", "fact")
   .option("-i, --importance <n>", "重要性 0-1", parseFloat)
-  .action(async (content: string, opts: { type: string; importance?: number }) => {
+  .option("--ttl <seconds>", "过期秒数(可选)", parseInt)
+  .action(async (content: string, opts: { type: string; importance?: number; ttl?: number }) => {
     const now = Math.floor(Date.now() / 1000);
     const rec = newRecord(content, opts.type as "fact", now, { namespace: currentNs() });
     if (opts.importance !== undefined) rec.importance = opts.importance;
+    if (opts.ttl !== undefined) rec.expirationAt = now + opts.ttl;
     const store = await openStore();
     const stored = await resolveAndInsert(store, rec, new LastWriteWins(), now);
     console.log(`+ ${stored.id} [${stored.memoryType}] ${stored.content}`);
@@ -123,6 +125,28 @@ program
       console.log(
         `${score.toFixed(4)}  [${record.memoryType}]  ${record.content}  (reads=${record.accessCount})`,
       );
+    }
+  });
+
+program
+  .command("history")
+  .description("记忆变更历史(合并/删除的旧记录快照;仅 SQLite 后端)")
+  .option("-n2, --limit <n>", "条数上限", parseInt, 50)
+  .action(async (opts: { limit: number }) => {
+    const store = await openStore();
+    if (!("listHistory" in store)) {
+      console.log("(backend has no history support; use -b sqlite)");
+      return;
+    }
+    const entries = await (
+      store as { listHistory(q?: object): Promise<{ at: number; reason: string; oldRecord: { content: string } }[]> }
+    ).listHistory({ namespace: currentNs(), limit: opts.limit });
+    if (entries.length === 0) {
+      console.log("(no history)");
+      return;
+    }
+    for (const e of entries) {
+      console.log(`${e.at}  [${e.reason}]  ${e.oldRecord.content}`);
     }
   });
 
