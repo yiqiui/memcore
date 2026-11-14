@@ -96,7 +96,7 @@ export class PgStore implements MemoryStore {
   async insert(record: MemoryRecord): Promise<void> {
     await this.pool.query(
       `INSERT INTO memories
-       (id, content, memory_type, namespace, created_at, last_accessed_at, access_count, importance, metadata, expiration_at)
+       (id, content, memory_type, namespace, expiration_at, created_at, last_accessed_at, access_count, importance, metadata)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (id) DO UPDATE SET
          content = EXCLUDED.content, memory_type = EXCLUDED.memory_type, namespace = EXCLUDED.namespace,
