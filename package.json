@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present"
+    "build": "npm run build -w @memcore/core -w @memcore/lancedb -w @memcore/pg -w @memcore/embed-local -w @memcore/mcp -w @memcore/cli -w @memcore/dashboard"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
